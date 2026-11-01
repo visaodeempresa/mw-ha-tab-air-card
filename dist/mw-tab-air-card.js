@@ -23,7 +23,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.2.0";
+  const VERSION = "0.3.0";
   /* ------------------------------------------------------------ utilidades */
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
@@ -89,12 +89,12 @@
   // <<< paper-dark-palette v1
 
   // >>> paper-grafite-palette v1 — fonte canônica: /Volumes/SSD-T1-01/CLAUDE-SSD/IA/lib/paper-grafite-palette/paper-grafite-palette.js
-  // 7 tons de grafite (1 = mais claro, 7 = mais encardido). Matiz 30° da
-  // casa, saturação 5–13%: neutro de propósito — grafite não é colorido.
+  // 7 tons de grafite (1 = mais claro ainda, 7 = mais encardido). Matiz 30° da
+  // casa, saturação 4–13%: neutro de propósito — grafite não é colorido.
   // A saturação sobe devagar com a escuridão, mas JAMAIS alcança a escala
   // das matizes encardidas (que sobe a 28%): a linha grafite é neutra.
   const GRAFITE_HUE = 30;
-  const GRAFITE_TONES = [[38, 5], [30, 6], [22, 7], [16, 9], [13, 10], [10, 12], [8, 13]];
+  const GRAFITE_TONES = [[52, 4], [42, 5], [34, 6], [26, 7], [18, 9], [12, 11], [8, 13]];
   const GRAFITE_DEFAULT = "linear-gradient(145deg, #2b2825, #161411)";
   const GRAFITE_INK = "rgba(247, 244, 236, 0.94)";
   const isGrafite = (key) => /^grafite-[1-7]$/.test(String(key || "").trim());
@@ -112,7 +112,7 @@
   };
   const grafiteOptions = () => GRAFITE_TONES.map((t, i) => ({
     value: `grafite-${i + 1}`,
-    label: `Grafite · tom ${i + 1}${i === 0 ? " (mais claro)" : i === 6 ? " (mais encardido)" : ""}`,
+    label: `Grafite · tom ${i + 1}${i === 0 ? " (mais claro ainda)" : i === 1 ? " (claro)" : i === 6 ? " (mais encardido)" : ""}`,
   }));
   // <<< paper-grafite-palette v1
 
