@@ -23,7 +23,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.1.0";
+  const VERSION = "0.2.0";
   /* ------------------------------------------------------------ utilidades */
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
@@ -87,6 +87,34 @@
       label: `${h[1]} · tom ${i + 1}${i === 0 ? " (mais claro)" : i === 6 ? " (mais escuro)" : ""}`,
     }))));
   // <<< paper-dark-palette v1
+
+  // >>> paper-grafite-palette v1 — fonte canônica: /Volumes/SSD-T1-01/CLAUDE-SSD/IA/lib/paper-grafite-palette/paper-grafite-palette.js
+  // 7 tons de grafite (1 = mais claro, 7 = mais encardido). Matiz 30° da
+  // casa, saturação 5–13%: neutro de propósito — grafite não é colorido.
+  // A saturação sobe devagar com a escuridão, mas JAMAIS alcança a escala
+  // das matizes encardidas (que sobe a 28%): a linha grafite é neutra.
+  const GRAFITE_HUE = 30;
+  const GRAFITE_TONES = [[38, 5], [30, 6], [22, 7], [16, 9], [13, 10], [10, 12], [8, 13]];
+  const GRAFITE_DEFAULT = "linear-gradient(145deg, #2b2825, #161411)";
+  const GRAFITE_INK = "rgba(247, 244, 236, 0.94)";
+  const isGrafite = (key) => /^grafite-[1-7]$/.test(String(key || "").trim());
+  const grafiteGradient = (key) => {
+    const m = isGrafite(key) && /^grafite-([1-7])$/.exec(String(key).trim());
+    if (!m) return GRAFITE_DEFAULT;
+    const [l, s] = GRAFITE_TONES[+m[1] - 1];
+    return `linear-gradient(145deg, hsl(${GRAFITE_HUE}, ${s}%, ${l}%), hsl(${GRAFITE_HUE}, ${s + 4}%, ${Math.max(4, l - 6)}%))`;
+  };
+  const grafiteStops = (key) => {
+    const m = isGrafite(key) && /^grafite-([1-7])$/.exec(String(key).trim());
+    if (!m) return ["#2b2825", "#161411"];
+    const [l, s] = GRAFITE_TONES[+m[1] - 1];
+    return [`hsl(${GRAFITE_HUE}, ${s}%, ${l}%)`, `hsl(${GRAFITE_HUE}, ${s + 4}%, ${Math.max(4, l - 6)}%)`];
+  };
+  const grafiteOptions = () => GRAFITE_TONES.map((t, i) => ({
+    value: `grafite-${i + 1}`,
+    label: `Grafite · tom ${i + 1}${i === 0 ? " (mais claro)" : i === 6 ? " (mais encardido)" : ""}`,
+  }));
+  // <<< paper-grafite-palette v1
 
   // ---- cor: parse / compose (mantém alfa, que o desenho usa muito) ----
   const parseColor = (str) => {
@@ -936,7 +964,7 @@
           { name: "icon", selector: { icon: {} } },
           { name: "name", selector: { text: {} } },
         ] },
-        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions() } } },
+        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions().concat(grafiteOptions()) } } },
         { name: "color_icon", selector: { text: {} } },
         { name: "color_on_name", selector: { text: {} } },
         { name: "show_when_state", selector: { select: { mode: "dropdown", options: [
@@ -1033,7 +1061,7 @@
           { name: "confirm", selector: { boolean: {} } },
           { name: "haptic", selector: { boolean: {} } },
         ] },
-        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions() } } },
+        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions().concat(grafiteOptions()) } } },
       ];
       this._btForm.data = b;
 
@@ -1064,7 +1092,7 @@
           { name: "depth", selector: { select: { mode: "dropdown", options: [
             { value: "flat", label: "Sem relevo" }, { value: "soft", label: "Suave" }, { value: "3d", label: "3D" }] } } },
           { name: "paper_color", selector: { select: { mode: "dropdown",
-            options: [{ value: "none", label: "Fundo do tema" }].concat(paperOptions()) } } },
+            options: [{ value: "none", label: "Fundo do tema" }].concat(paperOptions(), grafiteOptions()) } } },
         ] },
       ];
       const rdata = { ...r }; delete rdata.bands; delete rdata.sections; delete rdata.grid_options;
@@ -1100,7 +1128,7 @@
           { name: "sensor_corrente", selector: { entity: { domain: "sensor" } } },
           { name: "sensor_potencia", selector: { entity: { domain: "sensor" } } },
         ] },
-        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions() } } },
+        { name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions().concat(grafiteOptions()) } } },
       ];
       this._pwForm.data = p;
     }
@@ -1187,7 +1215,7 @@
 
     _renderColors() {
       this._paperForm.hass = this._hass;
-      this._paperForm.schema = [{ name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions() } } }];
+      this._paperForm.schema = [{ name: "paper_color", selector: { select: { mode: "dropdown", options: paperOptions().concat(grafiteOptions()) } } }];
       this._paperForm.data = { paper_color: this._config.paper_color || DEFAULTS.paper_color };
 
       const campos = [
