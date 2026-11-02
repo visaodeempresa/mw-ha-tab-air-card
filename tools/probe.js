@@ -164,11 +164,13 @@ const add = (id, dev, nome, extra) => {
 for (const [id, nome] of SCENES) add(id, null, nome);
 // tomada Tuya, em português
 add(SOCKET, TUYA, "Tomada AR Escritório");
+HASS.states[SOCKET].state = "on";
 add(SOCKET_V, TUYA, "Voltagem");
 add(SOCKET_C, TUYA, "Corrente");
 add(SOCKET_P, TUYA, "Potência");
 // tomada Tapo, em inglês e com energia acumulada para confundir
 add("switch.tapo_ar", TAPO, "Tapo AR");
+HASS.states["switch.tapo_ar"].state = "on";
 add("sensor.tapo_ar_today_energy", TAPO, "Today Energy");
 add("sensor.tapo_ar_current_power", TAPO, "Current Power");
 // controle IR do MW Infrared
@@ -237,6 +239,32 @@ ok(!!customElements.get(CARD_TYPE + "-editor"), "editor não registrado");
     eq(pw.sensor_corrente, SOCKET_C, "sensor de corrente achado");
     eq(pw.sensor_potencia, SOCKET_P, "sensor de potência achado");
   }
+
+  // --- COMPORTAMENTO NOVO: Reatividade Dinâmica via set hass ---
+  // Um card já montado com tomada ligada deve reagir dinamicamente quando a tomada for desligada e religada
+  const dynamicCard = mk({
+    power_entity: SOCKET, socket_device: TUYA,
+    image: IMG, scenes: SCENE_MAP,
+  });
+  await tick(); await tick(); await tick();
+  eq(dynamicCard._child._cfg.tabs.length, 2, "card dinâmico inicia com 2 abas (tomada ligada)");
+  // Desliga a tomada via hass
+  HASS.states[SOCKET].state = "off";
+  dynamicCard.hass = HASS;
+  await tick(); await tick(); await tick();
+  eq(dynamicCard._child._cfg.tabs.length, 1, "card dinâmico reduz para 1 aba após desligar tomada");
+  eq(dynamicCard._child._cfg.tabs[0].cards[0].cards[1].type, "custom:power-button-card", "tomada assume lugar dos botões dinamicamente");
+  const tab1Pbc = dynamicCard._child._cfg.tabs[0].cards[0].cards[1];
+  ok(tab1Pbc.card_mod && /aspect-ratio:\s*1\s*\/\s*1/.test(tab1Pbc.card_mod.style), "tomada da 1ª aba blindada como quadrado perfeito 1:1");
+  // Religa a tomada
+  HASS.states[SOCKET].state = "on";
+  dynamicCard.hass = HASS;
+  await tick(); await tick(); await tick();
+  eq(dynamicCard._child._cfg.tabs.length, 2, "card dinâmico restaura 2 abas após religar tomada");
+  eq(dynamicCard._child._cfg.tabs[0].cards[0].cards[1].cards[2].type, "custom:mw-scene-button-card", "botões restaurados dinamicamente");
+  const tab2Pbc = dynamicCard._child._cfg.tabs[1].cards[1].cards[0];
+  eq(tab2Pbc.type, "custom:power-button-card", "tomada presente na 2ª aba (energia)");
+  ok(tab2Pbc.card_mod && /aspect-ratio:\s*1\s*\/\s*1/.test(tab2Pbc.card_mod.style), "tomada da 2ª aba blindada como quadrado perfeito 1:1");
 
   // Tapo: inglês, sem tensão/corrente, e energia acumulada NÃO é potência
   const c2 = mk({ power_entity: "switch.tapo_ar", scenes: SCENE_MAP });

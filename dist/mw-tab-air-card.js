@@ -23,7 +23,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.3.0";
+  const VERSION = "0.4.0";
   /* ------------------------------------------------------------ utilidades */
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
@@ -136,8 +136,11 @@
   const DEFAULTS = {
     control: "scenes",          // scenes | infrared
     power_entity: "",           // a tomada: é o estado dela que troca os botões
+    socket_entity: "",          // alias para power_entity
     socket_device: "",          // dispositivo da tomada (Tuya, LocalTuya, Tapo…)
+    socket_align: "end",        // alinhamento do botão da tomada quando desligada: top | center | end
     ir_device: "",              // controle pareado do MW Infrared (modo infrared)
+    climate_entity: "",         // entidade climate (opcional)
     image: "",
     rainbow: true,
     energy_tab: true,
@@ -184,7 +187,9 @@
   // A grade da aba de energia com UM card sozinho estica o botão para a altura
   // inteira do painel. `align-content:start` prende no topo — é o que o YAML
   // escrito à mão fazia com card_mod, e continua sendo a saída honesta.
-  const ENERGY_MOD = { style: "div {\n  align-content: start;\n}\n" };
+  const ENERGY_MOD = {
+    style: "div { align-content: start; } custom-power-button-card, power-button-card { aspect-ratio: 1 / 1 !important; } ha-card { aspect-ratio: 1 / 1 !important; height: auto !important; }",
+  };
 
   /* ------------------------------- os cinco botões ------------------------ */
 
@@ -254,8 +259,37 @@
   /** a tomada: entidade explícita › switch do dispositivo da tomada. */
   const socketEntity = (hass, cfg) => {
     if (cfg.power_entity) return cfg.power_entity;
+    if (cfg.socket_entity) return cfg.socket_entity;
     const sws = entitiesOfDevice(hass, cfg.socket_device).filter((id) => id.indexOf("switch.") === 0);
     return sws.find((id) => /socket|tomada|plug/.test(id)) || sws[0] || "";
+  };
+
+  const socketState = (hass, cfg) => {
+    const ent = socketEntity(hass, cfg);
+    return ent && hass && hass.states && hass.states[ent] ? hass.states[ent].state : null;
+  };
+
+  const climateEntity = (hass, cfg) => {
+    if (cfg.climate_entity) return cfg.climate_entity;
+    const devs = [cfg.device, cfg.ir_device].filter(Boolean);
+    for (const d of devs) {
+      const clim = entitiesOfDevice(hass, d).find((id) => id.indexOf("climate.") === 0);
+      if (clim) return clim;
+    }
+    return "";
+  };
+
+  const airStatus = (hass, cfg) => {
+    if (!hass || !hass.states) return "unknown";
+    const ent = climateEntity(hass, cfg);
+    if (ent && hass.states[ent]) {
+      return hass.states[ent].state;
+    }
+    const sockEnt = socketEntity(hass, cfg);
+    if (sockEnt && hass.states[sockEnt]) {
+      return hass.states[sockEnt].state === "off" ? "off" : "on";
+    }
+    return "on";
   };
 
   // Tuya fala português ("voltagem", "corrente", "potência"); Tapo e o resto do
@@ -347,34 +381,121 @@
     };
   };
 
+  let sharedPbcSheet = null;
+  const getPbcStyleSheet = () => {
+    if (!sharedPbcSheet && typeof CSSStyleSheet !== "undefined" && "adoptedStyleSheets" in Document.prototype) {
+      try {
+        sharedPbcSheet = new CSSStyleSheet();
+        sharedPbcSheet.replaceSync(`
+          :host {
+            display: block !important;
+            aspect-ratio: 1 / 1 !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          ha-card {
+            aspect-ratio: 1 / 1 !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+        `);
+      } catch (_) {
+        sharedPbcSheet = null;
+      }
+    }
+    return sharedPbcSheet;
+  };
+
   /** a config do custom:mw-tab-card que este card vai montar. */
   const buildConfig = (hass, cfg) => {
     const cards = [];
 
+    const sockEnt = socketEntity(hass, cfg);
+    const sockSt = socketState(hass, cfg);
+    const isSocketOff = Boolean(sockEnt && sockSt === "off");
+
+    const airSt = airStatus(hass, cfg);
+    const isAirActive = (airSt === "on" || airSt === "cool" || airSt === "fan_only" || airSt === "heat" || airSt === "auto" || airSt === "dry" || airSt === "off");
+    const showControls = !isSocketOff && isAirActive;
+
     if (cfg.rainbow !== false && (cfg.rainbow_devices || []).length) cards.push(rainbowCard(hass, cfg));
 
-    const n = Math.max(0, Math.min(6, Number(cfg.spacers) === 0 ? 0 : (Number(cfg.spacers) || DEFAULTS.spacers)));
-    const fileira = sceneCard(hass, cfg);
-    const coluna = {
-      type: "grid",
-      square: false,
-      columns: 1,
-      cards: [
-        ...Array.from({ length: n }, () => ({ type: "custom:mushroom-empty-card" })),
-        ...(fileira ? [fileira] : [{
-          type: "markdown",
-          content: cfg.control === "infrared"
-            ? "Escolha o **controle do MW Infrared** no editor."
-            : "Escolha as **cenas** do ar no editor.",
-        }]),
-      ],
-    };
-    cards.push(cfg.image
-      ? { type: "grid", columns: 2, square: false, cards: [{ type: "picture", image: cfg.image }, coluna] }
-      : coluna);
+    if (isSocketOff) {
+      // Tomada desligada: controles ocultados; tomada colocada no lugar em formato de quadrado perfeito (1:1)
+      const pc = powerCard(hass, cfg);
+      const align = cfg.socket_align || DEFAULTS.socket_align || "end";
+      const marginCss = align === "center"
+        ? "margin: auto 0 !important;"
+        : align === "top"
+          ? "margin-bottom: auto !important;"
+          : "margin-top: auto !important;";
+      const alignSelfCss = align === "center"
+        ? "center"
+        : align === "top"
+          ? "start"
+          : "end";
 
-    const h = cfg.heading === undefined ? DEFAULTS.heading : cfg.heading;
-    if (h) cards.push({ type: "heading", heading: h, heading_style: "title" });
+      const pcSquare = pc ? {
+        ...pc,
+        card_mod: {
+          style: `ha-card { aspect-ratio: 1 / 1 !important; height: auto !important; ${marginCss} } :host { align-self: ${alignSelfCss} !important; }`,
+          ...(pc.card_mod || {}),
+        },
+      } : null;
+
+      if (cfg.image) {
+        cards.push({
+          type: "grid",
+          columns: 2,
+          square: false,
+          cards: [
+            { type: "picture", image: cfg.image },
+            ...(pcSquare ? [pcSquare] : []),
+          ],
+        });
+      } else if (pcSquare) {
+        cards.push(pcSquare);
+      }
+    } else if (showControls) {
+      // Tomada ligada e ar ativo: exibe controles
+      const n = Math.max(0, Math.min(6, Number(cfg.spacers) === 0 ? 0 : (Number(cfg.spacers) || DEFAULTS.spacers)));
+      const fileira = sceneCard(hass, cfg);
+      const coluna = {
+        type: "grid",
+        square: false,
+        columns: 1,
+        cards: [
+          ...Array.from({ length: n }, () => ({ type: "custom:mushroom-empty-card" })),
+          ...(fileira ? [fileira] : [{
+            type: "markdown",
+            content: cfg.control === "infrared"
+              ? "Escolha o **controle do MW Infrared** no editor."
+              : "Escolha as **cenas** do ar no editor.",
+          }]),
+        ],
+      };
+      cards.push(cfg.image
+        ? { type: "grid", columns: 2, square: false, cards: [{ type: "picture", image: cfg.image }, coluna] }
+        : coluna);
+
+      const h = cfg.heading === undefined ? DEFAULTS.heading : cfg.heading;
+      if (h) cards.push({ type: "heading", heading: h, heading_style: "title" });
+    } else {
+      // Tomada ligada, mas ar indisponível/desconhecido: evita controles inalcançáveis
+      const offlineMsg = {
+        type: "markdown",
+        content: `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:140px;text-align:center;padding:14px 8px;opacity:0.75;box-sizing:border-box;">
+          <ha-icon icon="mdi:air-conditioner-off" style="--mdc-icon-size:36px;margin-bottom:8px;color:var(--secondary-text-color);"></ha-icon>
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">Ar-Condicionado</div>
+          <div style="font-size:11px;opacity:0.8;margin-top:2px;">${airSt === "unavailable" ? "Indisponível" : "Desconectado"} · aguardando…</div>
+        </div>`,
+      };
+      cards.push(cfg.image
+        ? { type: "grid", columns: 2, square: false, cards: [{ type: "picture", image: cfg.image }, offlineMsg] }
+        : offlineMsg);
+    }
 
     for (const extra of (Array.isArray((cfg.extra_cards || {}).air) ? cfg.extra_cards.air : [])) cards.push(extra);
 
@@ -383,16 +504,22 @@
     tabs.push(deepMerge({ label: t1.label, icon: t1.icon, cards }, (cfg.tabs_yaml || {}).air || {}));
 
     const pc = cfg.energy_tab === false ? null : powerCard(hass, cfg);
-    if (pc) {
+    if (pc && !isSocketOff) {
       const t2 = { ...ENERGY_TAB, ...clean(cfg.energy_tab_options || {}) };
       const eh = cfg.energy_heading === undefined ? DEFAULTS.energy_heading : cfg.energy_heading;
       const ecards = [];
       if (eh) ecards.push({ type: "heading", heading: eh, heading_style: "title" });
+      const pcTab2 = {
+        ...pc,
+        card_mod: {
+          style: "ha-card { aspect-ratio: 1 / 1 !important; height: auto !important; margin-bottom: auto !important; }",
+        },
+      };
       const grade = {
         type: "grid",
         square: true,
         columns: Math.max(1, Math.min(6, Number(cfg.energy_columns) || 2)),
-        cards: [pc].concat(Array.isArray((cfg.extra_cards || {}).energy) ? cfg.extra_cards.energy : []),
+        cards: [pcTab2].concat(Array.isArray((cfg.extra_cards || {}).energy) ? cfg.extra_cards.energy : []),
       };
       if (cfg.energy_align_start !== false) grade.card_mod = ENERGY_MOD;
       ecards.push(grade);
@@ -421,25 +548,77 @@
     setConfig(config) {
       this._config = { ...DEFAULTS, ...(config || {}) };
       this._built = null;
+      this._lastSockState = null;
+      this._lastAirState = null;
       this._update();
     }
 
     set hass(hass) {
       const antes = this._hass;
       this._hass = hass;
+
+      if (!hass || !this._config) return;
+
+      const sockEnt = socketEntity(hass, this._config);
+      const sockSt = (sockEnt && hass.states && hass.states[sockEnt]) ? hass.states[sockEnt].state : null;
+      const airSt = airStatus(hass, this._config);
+
       const mexeu = !antes
         || antes.entities !== hass.entities
         || antes.devices !== hass.devices
         || antes.areas !== hass.areas
-        || Object.keys(antes.states || {}).length !== Object.keys(hass.states || {}).length;
-      if (mexeu) this._update(); else if (this._child) this._child.hass = hass;
+        || Object.keys(antes.states || {}).length !== Object.keys(hass.states || {}).length
+        || sockSt !== this._lastSockState
+        || airSt !== this._lastAirState;
+
+      this._lastSockState = sockSt;
+      this._lastAirState = airSt;
+
+      if (mexeu) this._update(); else if (this._child) { this._child.hass = hass; this._scheduleEnforceSquare(); }
     }
     get hass() { return this._hass; }
 
     set editMode(v) { this._editMode = v; if (this._child) this._child.editMode = v; }
     get editMode() { return this._editMode; }
 
-    connectedCallback() { this._update(); }
+    connectedCallback() {
+      this._setupObserver();
+      this._update();
+    }
+
+    disconnectedCallback() {
+      this._teardownObserver();
+    }
+
+    _setupObserver() {
+      if (this._observer || typeof MutationObserver === "undefined") return;
+      this._observer = new MutationObserver((mutations) => {
+        let shouldEnforce = false;
+        for (let i = 0; i < mutations.length; i++) {
+          const m = mutations[i];
+          if (m.type === "childList" && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
+            shouldEnforce = true;
+            break;
+          }
+        }
+        if (shouldEnforce) {
+          this._scheduleEnforceSquare();
+        }
+      });
+    }
+
+    _teardownObserver() {
+      if (this._observer) {
+        this._observer.disconnect();
+        this._observer = null;
+        this._isObserving = false;
+      }
+      if (this._rafId) {
+        if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+      }
+      this._enforcePending = false;
+    }
 
     async getCardSize() {
       try { return this._child && this._child.getCardSize ? await this._child.getCardSize() : 8; }
@@ -470,6 +649,89 @@
       host.innerHTML = `<div class="aviso">${html}</div>`;
     }
 
+    _scheduleEnforceSquare() {
+      if (this._enforcePending) return;
+      this._enforcePending = true;
+
+      if (typeof requestAnimationFrame === "function") {
+        this._rafId = requestAnimationFrame(() => {
+          this._enforcePending = false;
+          this._enforceSquare();
+        });
+      } else {
+        setTimeout(() => {
+          this._enforcePending = false;
+          this._enforceSquare();
+        }, 16);
+      }
+    }
+
+    _enforceSquare() {
+      if (!this._root) return;
+      const align = this._config?.socket_align || DEFAULTS.socket_align;
+      const alignSelf = align === "center" ? "center" : align === "top" ? "start" : "end";
+
+      if (this._observer && !this._isObserving && this._root) {
+        try {
+          this._observer.observe(this._root, { childList: true, subtree: true });
+          this._isObserving = true;
+        } catch (_) {}
+      }
+
+      const deepQuery = (sel, root) => {
+        const res = [];
+        const walker = (n) => {
+          if (!n) return;
+          if (n.querySelectorAll) {
+            const found = n.querySelectorAll(sel);
+            for (let i = 0; i < found.length; i++) res.push(found[i]);
+          }
+          if (n.shadowRoot) walker(n.shadowRoot);
+          for (const ch of (n.children || [])) walker(ch);
+        };
+        walker(root);
+        return res;
+      };
+
+      const sheet = getPbcStyleSheet();
+      const pbcs = deepQuery("power-button-card", this._root).concat(deepQuery("custom-power-button-card", this._root));
+
+      for (let i = 0; i < pbcs.length; i++) {
+        const pbc = pbcs[i];
+        if (pbc.parentElement && pbc.parentElement.tagName && pbc.parentElement.tagName.toLowerCase() === "hui-card") {
+          if (pbc.parentElement.style.alignSelf !== alignSelf) {
+            pbc.parentElement.style.alignSelf = alignSelf;
+          }
+        }
+
+        if (!pbc.shadowRoot) continue;
+
+        if (sheet && pbc.shadowRoot.adoptedStyleSheets) {
+          if (!pbc.shadowRoot.adoptedStyleSheets.includes(sheet)) {
+            pbc.shadowRoot.adoptedStyleSheets = [...pbc.shadowRoot.adoptedStyleSheets, sheet];
+          }
+        }
+
+        const haCard = pbc.shadowRoot.querySelector("ha-card");
+        if (haCard) {
+          if (haCard.style.aspectRatio !== "1 / 1") haCard.style.aspectRatio = "1 / 1";
+          if (haCard.style.height !== "100%") haCard.style.height = "100%";
+          if (haCard.style.maxHeight !== "100%") haCard.style.maxHeight = "100%";
+          if (haCard.style.width !== "100%") haCard.style.width = "100%";
+          if (haCard.style.boxSizing !== "border-box") haCard.style.boxSizing = "border-box";
+
+          const isEnergyGrid = pbc.closest && pbc.closest("hui-grid-card");
+          if (!isEnergyGrid) {
+            if (align === "center" && haCard.style.margin !== "auto 0px") haCard.style.margin = "auto 0";
+            else if (align === "top" && haCard.style.marginBottom !== "auto") haCard.style.marginBottom = "auto";
+            else if (align === "bottom" || align === "end") {
+              if (haCard.style.marginTop !== "auto") haCard.style.marginTop = "auto";
+            }
+          }
+        }
+      }
+    }
+
     async _update() {
       if (!this._config || !this.isConnected) return;
       const host = this._shell();
@@ -482,7 +744,11 @@
       }
 
       const s = sig(cfg);
-      if (this._child && s === this._built) { this._child.hass = this._hass; return; }
+      if (this._child && s === this._built) {
+        this._child.hass = this._hass;
+        this._scheduleEnforceSquare();
+        return;
+      }
       this._built = s;
 
       if (this._child) {
@@ -490,6 +756,7 @@
           this._child.setConfig(cfg);
           this._child.hass = this._hass;
           if (this._editMode !== undefined) this._child.editMode = this._editMode;
+          this._scheduleEnforceSquare();
           return;
         } catch (_) { this._child = null; }
       }
@@ -513,6 +780,7 @@
       host.innerHTML = "";
       host.appendChild(el);
       this._child = el;
+      this._scheduleEnforceSquare();
     }
   }
   // Os editores internos do HA não vêm carregados: só entram quando alguma
