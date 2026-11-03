@@ -204,7 +204,12 @@ ok(!!customElements.get(CARD_TYPE + "-editor"), "editor não registrado");
   ok(!!cfg, "o card não montou o custom:mw-tab-card");
   if (cfg) {
     eq(cfg.type, "custom:mw-tab-card", "tipo do filho");
-    eq(cfg.paper_color, "orange-7", "papel padrão");
+    eq(cfg.paper_color, "orange-7", "papel padrão ligado é orange-7");
+    HASS.states[SOCKET].state = "off";
+    card.hass = { ...HASS };
+    await tick();
+    eq(card._child && card._child._cfg && card._child._cfg.paper_color, "grafite-1", "papel tomada desligada é grafite-1");
+    HASS.states[SOCKET].state = "on";
     eq(cfg.shell_color, SHELL, "casca padrão");
     eq(cfg.tab_position, "right", "abas à direita");
     eq(cfg.tabs.length, 2, "duas abas");

@@ -23,7 +23,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "0.4.0";
+  const VERSION = "0.5.0";
   /* ------------------------------------------------------------ utilidades */
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
@@ -414,11 +414,18 @@
 
     const sockEnt = socketEntity(hass, cfg);
     const sockSt = socketState(hass, cfg);
-    const isSocketOff = Boolean(sockEnt && sockSt === "off");
+    const isSocketOff = Boolean(sockEnt && (sockSt === "off" || sockSt === "unavailable" || sockSt === "unknown"));
 
     const airSt = airStatus(hass, cfg);
     const isAirActive = (airSt === "on" || airSt === "cool" || airSt === "fan_only" || airSt === "heat" || airSt === "auto" || airSt === "dry" || airSt === "off");
     const showControls = !isSocketOff && isAirActive;
+
+    const isAirOn = (airSt === "on" || airSt === "cool" || airSt === "fan_only" || airSt === "heat" || airSt === "auto" || airSt === "dry");
+    const isOff = isSocketOff || !isAirOn;
+
+    const paperOn = cfg.paper_color_on || (cfg.paper_color && cfg.paper_color !== "grafite-1" ? cfg.paper_color : "orange-7");
+    const paperOff = cfg.paper_color_off || "grafite-1";
+    const paperColor = isOff ? paperOff : paperOn;
 
     if (cfg.rainbow !== false && (cfg.rainbow_devices || []).length) cards.push(rainbowCard(hass, cfg));
 
@@ -531,7 +538,7 @@
     const root = {
       type: "custom:mw-tab-card",
       tabs,
-      paper_color: cfg.paper_color || DEFAULTS.paper_color,
+      paper_color: paperColor,
       shell_color: cfg.shell_color || DEFAULTS.shell_color,
       ...TABS_DEFAULTS,
       ...clean(cfg.tabs_options || {}),
