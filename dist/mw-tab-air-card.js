@@ -921,6 +921,7 @@ th, td {
     if (isSocketOff) delete override.tabs;
     const finalCard = deepMerge(root, override);
     if (adminTabs.length && Array.isArray(finalCard.tabs)) {
+      finalCard.tabs = [...finalCard.tabs];
       for (const at of adminTabs) {
         if (!finalCard.tabs.some((t) => t.label === at.label)) {
           finalCard.tabs.push(at);
