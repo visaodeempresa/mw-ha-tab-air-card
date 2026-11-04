@@ -210,6 +210,12 @@ ok(!!customElements.get(CARD_TYPE + "-editor"), "editor não registrado");
     await tick();
     eq(card._child && card._child._cfg && card._child._cfg.paper_color, "grafite-1", "papel tomada desligada é grafite-1");
     HASS.states[SOCKET].state = "on";
+    // Teste com potência ativa quando a entidade está off
+    HASS.states[SOCKET_P] = { state: "950.0", attributes: { friendly_name: "Potência" } };
+    card.hass = { ...HASS };
+    await tick();
+    eq(card._child && card._child._cfg && card._child._cfg.paper_color, "orange-7", "potência ativa acima de 5W liga o papel orange-7");
+    HASS.states[SOCKET_P] = { state: "0.0", attributes: { friendly_name: "Potência" } };
     eq(cfg.shell_color, SHELL, "casca padrão");
     eq(cfg.tab_position, "right", "abas à direita");
     eq(cfg.tabs.length, 2, "duas abas");
@@ -328,6 +334,20 @@ ok(!!customElements.get(CARD_TYPE + "-editor"), "editor não registrado");
     const dentro = cfg6.tabs[0].cards[0].cards[2];
     eq(dentro.type, "markdown", "faltou o aviso de que não há botão");
   }
+
+  // Abas de administrador (Dispositivos, Automações, Atividades)
+  const prevUser = HASS.user;
+  HASS.user = { is_admin: true, name: "Admin" };
+  const cAdmin = mk({ power_entity: SOCKET, socket_device: TUYA, scenes: SCENE_MAP });
+  await tick(); await tick(); await tick();
+  const cfgAdmin = cAdmin._child && cAdmin._child._cfg;
+  if (cfgAdmin) {
+    eq(cfgAdmin.tabs.length, 5, "usuário admin tem 5 abas (Ar, Energia, Dispositivos, Automações, Atividades)");
+    eq(cfgAdmin.tabs[2].label, "DISPOSITIVOS", "3ª aba é DISPOSITIVOS");
+    eq(cfgAdmin.tabs[3].label, "AUTOMAÇÕES", "4ª aba é AUTOMAÇÕES");
+    eq(cfgAdmin.tabs[4].label, "ATIVIDADES", "5ª aba é ATIVIDADES");
+  }
+  HASS.user = prevUser;
 
   // editor monta sem hass e sem os elementos internos do HA
   const ed = new (customElements.get(CARD_TYPE + "-editor"))();
